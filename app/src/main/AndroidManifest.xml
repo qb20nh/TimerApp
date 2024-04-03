@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <application
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Theme.TimerApp"
+        tools:targetApi="34">
+        <activity
+            android:name=".FirstTimeActivity"
+            android:exported="false"
+            android:label="@string/title_activity_first_time"
+            android:theme="@style/Theme.TimerApp"
+            android:launchMode="singleTop"/>
+
+        <receiver android:name=".receiver.ScreenStateBroadcastReceiver" />
+
+        <service android:name=".service.ScreenStateListenerService" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="This service is utilized for enhancing timer accuracy by aligning it with user activity, specifically tracking the last time the phone was unlocked and the screen was turned on. The intent is to start the timer close to when the user first thought of doing so. For privacy, only the most recent timestamps for these two events are kept in memory, without any persistent storage or external data transfer."/>
+        </service>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.TimerApp">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

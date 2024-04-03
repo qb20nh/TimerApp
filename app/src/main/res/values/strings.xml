@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">TimerApp</string>
+    <string name="title_activity_first_time">FirstTimeActivity</string>
+</resources>
