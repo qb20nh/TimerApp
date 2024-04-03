@@ -2,8 +2,11 @@
 
 package dev.shrk.timerapp
 
+import android.content.Context
 import android.content.Intent
+import android.media.RingtoneManager
 import android.os.Bundle
+import android.os.CountDownTimer
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,7 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -26,6 +29,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -34,6 +38,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -41,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import dev.shrk.timerapp.service.ScreenStateListenerService
 import dev.shrk.timerapp.ui.theme.TimerAppTheme
+import java.time.Instant
 
 class MainActivity : ComponentActivity() {
 
@@ -48,7 +55,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             TimerAppTheme {
-                TimerUI()
+                TimerUI(this)
             }
         }
         if (isFirstLaunch()) {
@@ -76,22 +83,73 @@ class MainActivity : ComponentActivity() {
 
 
 @Composable
-fun TimerUI() {
-    var timeText by remember { mutableStateOf("") }
-    var parsedTime by remember { mutableStateOf("") }
+fun TimerUI(context: Context) {
+    var userInputText by remember { mutableStateOf("") }
+    var displayText by remember { mutableStateOf("") }
     var secondsTotal by remember { mutableIntStateOf(0) }
+    var remainingTime by remember { mutableLongStateOf(0) }
     val focusRequester = remember { FocusRequester() }
+    val ringtone = remember {
+        val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+        RingtoneManager.getRingtone(context, ringtoneUri)
+    }
 
-    var disabled by remember { mutableStateOf(false) }
+    var isTimerGoing by remember { mutableStateOf(false) }
+    var timer: CountDownTimer? by remember { mutableStateOf(null) }
+    var startTime by remember { mutableStateOf<Instant?>(null) }
+    var pauseTime by remember { mutableStateOf<Instant?>(null) }
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
 
+    fun cancelTimer() {
+        timer?.cancel() // Cancel the current timer if it's running
+        timer = null // Set the timer to null after cancelling
+    }
+
+    fun startOrResumeTimer() {
+        cancelTimer() // Ensure any running timer is cancelled before starting a new one
+        startTime = Instant.now() // Record the start time
+        timer = object : CountDownTimer(remainingTime, 1000) {
+            override fun onTick(millisUntilFinished: Long) {
+                val leftSeconds = (millisUntilFinished / 1000).toInt()
+                displayText = secondsToTimerText(leftSeconds)
+            }
+
+            override fun onFinish() {
+                displayText = "Time's up!"
+                ringtone.play()
+                isTimerGoing = false
+            }
+        }.start()
+        isTimerGoing = true
+    }
+
+    fun pauseTimer() {
+        cancelTimer() // Cancel the timer
+        pauseTime = Instant.now() // Record the pause time
+        if (startTime != null) {
+            val elapsed = pauseTime!!.toEpochMilli() - startTime!!.toEpochMilli()
+            remainingTime -= elapsed // Subtract the elapsed time from the remaining time
+        }
+        isTimerGoing = false
+    }
+
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(onClick = { /* Handle FAB click here */ }) {
-                Icon(Icons.Filled.Add, contentDescription = "Add")
+            FloatingActionButton(onClick = {
+                if (isTimerGoing) {
+                    pauseTimer()
+                } else {
+                    startOrResumeTimer()
+                }
+            }) {
+                if (isTimerGoing) Icon(
+                    painter = painterResource(id = R.drawable.baseline_pause_24),
+                    contentDescription = "Pause the timer"
+                )
+                else Icon(Icons.Filled.PlayArrow, contentDescription = "Resume the timer")
             }
         }
     ) {
@@ -104,11 +162,11 @@ fun TimerUI() {
 
                 ) {
                 TextField(
-                    value = timeText,
+                    value = userInputText,
                     onValueChange = {
-                        timeText = it.filter { char -> char.isDigit() }.take(4).trimStart('0')
-                        secondsTotal = parseTime(timeText)
-                        parsedTime = when {
+                        userInputText = it.filter { char -> char.isDigit() }.take(4).trimStart('0')
+                        secondsTotal = parseTime(userInputText)
+                        displayText = when {
                             secondsTotal > 0 -> secondsToTimerText(secondsTotal)
                             else -> ""
                         }
@@ -118,20 +176,31 @@ fun TimerUI() {
                         imeAction = ImeAction.Go,
                     ),
                     keyboardActions = KeyboardActions(
-                        onDone = {
-                            disabled = true
-                            performAction(secondsTotal)
+                        onGo = {
+                            isTimerGoing = true
+                            focusRequester.freeFocus()
+                        if (secondsTotal > 0) {
+                            remainingTime = secondsTotal * 1000L
+                            startOrResumeTimer()
+                        }
                         }
                     ),
-                    enabled = !disabled,
+                    enabled = !isTimerGoing,
+                    readOnly = isTimerGoing,
                     modifier = Modifier
                         .focusRequester(focusRequester)
                         .fillMaxSize()
                         .alpha(0.0F)
+                        .onFocusChanged {
+                            if (it.isFocused) {
+                                ringtone.stop()
+                                displayText = secondsToTimerText(secondsTotal)
+                            }
+                        }
                 )
-                Text(parsedTime)
+                Text(displayText)
                 Text(
-                    when (parsedTime) {
+                    when (displayText) {
                         "" -> "Enter time"
                         else -> ""
                     },
@@ -143,10 +212,6 @@ fun TimerUI() {
         }
     }
 
-}
-
-fun performAction(secondsTotal: Int) {
-    // start the timer
 }
 
 fun parseTime(input: String): Int {
